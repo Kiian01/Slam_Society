@@ -4,18 +4,51 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
+import { AuthProvider, useAuth } from '@/context/AuthContext';
+import {
+  useFonts,
+  Outfit_400Regular,
+  Outfit_500Medium,
+  Outfit_700Bold,
+} from '@expo-google-fonts/outfit';
 
 export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Outfit_400Regular,
+    Outfit_500Medium,
+    Outfit_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return null; // render nothing until Outfit is ready — swap for a splash screen later if you want
+  }
+
+  return (
+    <AuthProvider>
+      <RootLayoutNav />
+    </AuthProvider>
+  );
+}
+
+function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  const { isLoggedIn, isLoading } = useAuth();
+
+  if (isLoading) {
+    return null; // render nothing while checking auth status — swap for a splash screen later if you want
+  }
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Protected guard={!isLoggedIn}>
+          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        </Stack.Protected>
+
+        <Stack.Protected guard={isLoggedIn}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        </Stack.Protected>
+
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="auto" />
