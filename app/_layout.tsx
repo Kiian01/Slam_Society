@@ -47,6 +47,9 @@ function RootLayoutNav() {
 
         <Stack.Protected guard={isLoggedIn}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="event/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="event/[id]/attendees" options={{ headerShown: false }} />
+          <Stack.Screen name="edit-profile" options={{ headerShown: false }} />
         </Stack.Protected>
 
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />

@@ -21,7 +21,7 @@ export const AuthFonts = {
   medium: 'Outfit_500Medium',
   bold: 'Outfit_700Bold',
   heading: Platform.select({
-    ios: 'New York',
+    ios: 'NewYork',
     default: 'Outfit_700Bold',
   }),
 };

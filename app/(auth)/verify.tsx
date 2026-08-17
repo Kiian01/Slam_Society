@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthColors, AuthFonts } from '@/constants/authTheme';
 import AuthStepIndicator from '@/components/AuthStepIndicator';
 import { useAuth } from '@/context/AuthContext';
+import { awardPoints } from '@/services/pointsService';
+import { POINTS_RULES } from '@/data/pointsRules';
 
 // No SMS/OTP backend yet — this is a placeholder step that just moves the
 // user forward. Swap the button logic for a real check once verification
@@ -13,6 +15,8 @@ export default function Verify() {
   const { signIn } = useAuth();
 
   const handleContinue = () => {
+    // Client requirement #11: 25 points for creating an account.
+    awardPoints('Created your SLAM account', POINTS_RULES.createAccount);
     // Flipping isLoggedIn makes (tabs) available and (auth) unreachable —
     // Stack.Protected automatically redirects there, no router call needed.
     signIn();
