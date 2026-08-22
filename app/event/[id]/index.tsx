@@ -15,14 +15,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthFonts } from '@/constants/authTheme';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useAsyncData } from '@/hooks/useAsyncData';
+import { useAuth } from '@/context/AuthContext';
 import { getEventById } from '@/services/eventsService';
 import { getAttendees } from '@/services/attendeesService';
-import { getCurrentUser } from '@/services/userService';
+import { getRsvpStatus, rsvpToEvent, checkInToEvent } from '@/services/rsvpService';
 
 import ScriptHeading from '@/components/events/ScriptHeading';
 import PricingCard from '@/components/events/PricingCard';
 import AttendeesPreview from '@/components/events/AttendeesPreview';
-import { awardPoints } from '@/services/pointsService';
 import { POINTS_RULES } from '@/data/pointsRules';
 
 // Static for now — swap for a real comments collection later.
@@ -36,16 +36,23 @@ const mockComments = [
 export default function EventDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();
-  const [isGoing, setIsGoing] = useState(false);
-  const [checkedIn, setCheckedIn] = useState(false);
+  const { user } = useAuth(); // guaranteed non-null here — this route is behind Stack.Protected
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const { data: event, loading: eventLoading } = useAsyncData(() => getEventById(id), [id]);
-  const { data: attendees, loading: attendeesLoading } = useAsyncData(() => getAttendees(id), [id]);
-  const { data: currentUser, loading: userLoading } = useAsyncData(getCurrentUser);
+  const { data: event, loading: eventLoading } = useAsyncData(() => getEventById(id), [id, refreshKey]);
+  const { data: attendees, loading: attendeesLoading } = useAsyncData(
+    () => getAttendees(id),
+    [id, refreshKey]
+  );
+  const { data: rsvpStatus, loading: rsvpLoading } = useAsyncData(
+    () => getRsvpStatus(id, user!.uid),
+    [id, user?.uid, refreshKey]
+  );
 
-  const isLoading = eventLoading || attendeesLoading || userLoading;
+  const isLoading = eventLoading || attendeesLoading || rsvpLoading;
 
-  if (isLoading || !event) {
+  if (isLoading || !event || !rsvpStatus) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator color={colors.primary} size="large" />
@@ -53,31 +60,50 @@ export default function EventDetail() {
     );
   }
 
+  const isGoing = rsvpStatus.isGoing;
+  const checkedIn = rsvpStatus.checkedIn;
   const previewAvatars = (attendees ?? []).slice(0, 3).map((a) => a.avatar);
   const previewNames = (attendees ?? []).slice(0, 2).map((a) => a.name.split(' ')[0]);
   const isPaid = event.pricingType === 'paid';
   const actionLabel = isPaid ? 'Tickets' : isGoing ? "You're Going ✓" : 'RSVP';
 
-  const handleAction = () => {
+  const handleAction = async () => {
     if (isPaid) {
       Alert.alert('Tickets', "Checkout isn't wired up yet — this is a placeholder for now.");
       return;
     }
-    if (isGoing) return;
-    setIsGoing(true);
+    if (isGoing || actionLoading) return;
+
+    setActionLoading(true);
+    const result = await rsvpToEvent(id, user!.uid);
+    setActionLoading(false);
+
+    if (!result.success) {
+      Alert.alert("Can't RSVP", result.message ?? 'Something went wrong.');
+      return;
+    }
+    setRefreshKey((k) => k + 1);
   };
 
   // Placeholder for check-in — client requirement #11 is explicit that RSVP
   // alone should never award points, only real attendance. A real version
   // needs a host-facing tool (QR scan or "mark attended") since a button the
-  // guest taps themselves isn't verified. This exists so the point values
-  // and flow are correct and ready to wire up once that tool exists.
+  // guest taps themselves isn't verified. This exists so the RSVP-vs-attendance
+  // data model and point values are correct and ready to wire up once that
+  // tool exists.
   const handleCheckIn = async () => {
-    if (checkedIn) return;
+    if (checkedIn || actionLoading) return;
+    setActionLoading(true);
     const basePoints = isPaid ? POINTS_RULES.attendPaidEvent : POINTS_RULES.attendFreeEvent;
-    const earned = await awardPoints(`Checked in to ${event.title}`, basePoints);
-    setCheckedIn(true);
-    Alert.alert('Checked in!', `You earned ${earned} SLAM Points for attending.`);
+    const result = await checkInToEvent(id, user!.uid, event.title, basePoints);
+    setActionLoading(false);
+
+    if (!result.success) {
+      Alert.alert("Can't check in", result.message ?? 'Something went wrong.');
+      return;
+    }
+    setRefreshKey((k) => k + 1);
+    Alert.alert('Checked in!', `You earned ${result.pointsEarned} SLAM Points for attending.`);
   };
 
   return (
@@ -142,11 +168,15 @@ export default function EventDetail() {
           ]}
           onPress={handleAction}
           activeOpacity={0.85}
-          disabled={isGoing && !isPaid}
+          disabled={(isGoing && !isPaid) || actionLoading}
         >
-          <Text style={[styles.actionText, { color: isGoing && !isPaid ? colors.text : colors.onPrimary }]}>
-            {actionLabel}
-          </Text>
+          {actionLoading && !isGoing ? (
+            <ActivityIndicator color={colors.onPrimary} />
+          ) : (
+            <Text style={[styles.actionText, { color: isGoing && !isPaid ? colors.text : colors.onPrimary }]}>
+              {actionLabel}
+            </Text>
+          )}
         </TouchableOpacity>
 
         {isGoing ? (
@@ -161,12 +191,16 @@ export default function EventDetail() {
                 { borderColor: colors.primary, backgroundColor: checkedIn ? colors.border : 'transparent' },
               ]}
               onPress={handleCheckIn}
-              disabled={checkedIn}
+              disabled={checkedIn || actionLoading}
               activeOpacity={0.85}
             >
-              <Text style={[styles.checkInText, { color: checkedIn ? colors.subtleText : colors.primary }]}>
-                {checkedIn ? "You're checked in ✓" : 'Check In (at the event)'}
-              </Text>
+              {actionLoading && !checkedIn ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <Text style={[styles.checkInText, { color: checkedIn ? colors.subtleText : colors.primary }]}>
+                  {checkedIn ? "You're checked in ✓" : 'Check In (at the event)'}
+                </Text>
+              )}
             </TouchableOpacity>
           </>
         ) : null}

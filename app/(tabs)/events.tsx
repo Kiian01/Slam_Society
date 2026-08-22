@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { router } from 'expo-router';
 
@@ -9,10 +9,11 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { getUpcomingEvents } from '@/services/eventsService';
 import { getCurrentUser } from '@/services/userService';
 import { mockExploreCategories } from '@/data/mockExploreCategories';
+import { seedEvents } from '@/scripts/seedEvents'; // TEMP — remove this import once you've seeded once
 
 import SectionHeader from '@/components/home/SectionHeader';
 import SearchBar from '@/components/events/SearchBar';
-import CreateEventButton from '@/components/events/CreateEventButtom';
+import CreateEventButton from '@/components/events/CreateEventButton';
 import CategoryTabs, { EventFilterCategory } from '@/components/events/CategoryTabs';
 import EventListCard from '@/components/events/EventListCard';
 import ExploreCategoryGrid from '@/components/events/ExploreCategoryGrid';
@@ -23,7 +24,10 @@ export default function Events() {
   const colors = useThemeColors();
   const tabBarHeight = useBottomTabBarHeight();
 
-  const { data: events, loading: eventsLoading } = useAsyncData(getUpcomingEvents);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [seeding, setSeeding] = useState(false);
+
+  const { data: events, loading: eventsLoading } = useAsyncData(getUpcomingEvents, [refreshKey]);
   const { data: currentUser, loading: userLoading } = useAsyncData(getCurrentUser);
 
   const [search, setSearch] = useState('');
@@ -31,6 +35,21 @@ export default function Events() {
   const [nearbyVisibleCount, setNearbyVisibleCount] = useState(NEARBY_PAGE_SIZE);
 
   const isLoading = eventsLoading || userLoading;
+
+  // TEMP — one-time button to push data/mockEvents.ts into Firestore.
+  // Delete this handler and the button in the JSX below once you've run it once.
+  const handleSeed = async () => {
+    setSeeding(true);
+    try {
+      const count = await seedEvents();
+      Alert.alert('Seeded', `Added ${count} sample events to Firestore.`);
+      setRefreshKey((k) => k + 1);
+    } catch (err: any) {
+      Alert.alert('Seeding failed', err?.message ?? 'Check your Firestore rules/config.');
+    } finally {
+      setSeeding(false);
+    }
+  };
 
   const featuredEvents = events?.slice(0, 2) ?? [];
 
@@ -61,6 +80,18 @@ export default function Events() {
       contentContainerStyle={{ paddingTop: 60, paddingBottom: tabBarHeight + 24 }}
       showsVerticalScrollIndicator={false}
     >
+      {/* TEMP — delete this button once you've seeded Firestore once */}
+      <TouchableOpacity
+        style={[styles.seedButton, { borderColor: colors.primary }]}
+        onPress={handleSeed}
+        disabled={seeding}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.seedButtonText, { color: colors.primary }]}>
+          {seeding ? 'Seeding…' : 'DEV: Seed Sample Events'}
+        </Text>
+      </TouchableOpacity>
+
       <View style={styles.searchRow}>
         <View style={{ flex: 1 }}>
           <SearchBar value={search} onChangeText={setSearch} />
@@ -129,6 +160,16 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, marginBottom: 16 },
+  seedButton: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  seedButtonText: { fontSize: 12, fontFamily: AuthFonts.bold },
   section: { marginTop: 20 },
   emptyText: { paddingHorizontal: 20, fontSize: 13, fontFamily: AuthFonts.regular },
   loadMoreButton: {

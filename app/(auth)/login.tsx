@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,28 +16,52 @@ import { AuthColors, AuthFonts } from '@/constants/authTheme';
 import { isValidEmail } from '@/utils/validation';
 import { useAuth } from '@/context/AuthContext';
 
+// Maps Firebase's error codes to messages people actually understand.
+function getFriendlyAuthError(code: string): string {
+  switch (code) {
+    case 'auth/invalid-email':
+      return 'That email address looks invalid.';
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+      return 'Incorrect email or password.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts — please wait a moment and try again.';
+    default:
+      return 'Something went wrong logging in. Please try again.';
+  }
+}
+
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const { signIn } = useAuth();
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!email || !password) {
       setError('Please fill in all fields');
       return;
     }
-    // Allow either an email or a phone number, but if it looks like an email, validate it properly
-    if (email.includes('@') && !isValidEmail(email)) {
+    // Login is email-only now — Firebase Auth needs a real email address.
+    // Phone sign-in would need Firebase Phone Auth (SMS/reCAPTCHA) set up separately.
+    if (!isValidEmail(email)) {
       setError('Please enter a valid email address');
       return;
     }
     setError('');
-    // TODO: hook up real authentication once the backend is ready
-    // Flipping isLoggedIn makes (tabs) available — Stack.Protected redirects
-    // there automatically, no router call needed.
-    signIn();
+    setLoading(true);
+    try {
+      // Stack.Protected picks up the login automatically once Firebase
+      // confirms it — no router call needed here.
+      await signIn(email.trim(), password);
+    } catch (err: any) {
+      setError(getFriendlyAuthError(err?.code ?? ''));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -50,7 +75,7 @@ export default function Login() {
         {error ? <Text style={styles.errorBanner}>{error}</Text> : null}
 
         <View style={styles.field}>
-          <Text style={styles.label}>Email or Phone</Text>
+          <Text style={styles.label}>Email</Text>
           <TextInput
             style={styles.input}
             value={email}
@@ -87,8 +112,17 @@ export default function Login() {
           <Text style={styles.forgotPassword}>Forgot Password?</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.primaryButton} onPress={handleLogin} activeOpacity={0.85}>
-          <Text style={styles.primaryButtonText}>Log In</Text>
+        <TouchableOpacity
+          style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
+          onPress={handleLogin}
+          activeOpacity={0.85}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color={AuthColors.white} />
+          ) : (
+            <Text style={styles.primaryButtonText}>Log In</Text>
+          )}
         </TouchableOpacity>
 
         <View style={styles.dividerRow}>
@@ -180,6 +214,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
+  primaryButtonDisabled: { opacity: 0.7 },
   primaryButtonText: {
     color: AuthColors.white,
     fontSize: 16,

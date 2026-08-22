@@ -1,14 +1,26 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
-import { Platform } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  type User,
+} from 'firebase/auth';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '@/config/firebase';
 
-const SESSION_KEY = "slam_is_logged_in";
+type SignUpDetails = {
+  fullName: string;
+  phone: string;
+};
 
 type AuthContextType = {
+  user: User | null;
   isLoggedIn: boolean;
   isLoading: boolean;
-  signIn: () => void;
-  signOut: () => void;
+  signUp: (email: string, password: string, details: SignUpDetails) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -21,41 +33,48 @@ export function useAuth() {
   return value;
 }
 
-// In-memory only for now — resets every time the app fully reloads.
-// Swap setIsLoggedIn(true) for a real token check once you have a backend.
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    async function restoreSession() {
-      if (Platform.OS !== 'web') {
-        setIsLoading(false);
-        return;
-      }
-      const stored = await SecureStore.getItemAsync(SESSION_KEY);
-    setIsLoggedIn(stored === 'true');
-    setIsLoading(false);
-    }
-    restoreSession();
+    // Firebase restores the session from AsyncStorage automatically and
+    // fires this listener once it knows whether someone's logged in —
+    // this is what replaces our old manual SecureStore boolean flag.
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setIsLoading(false);
+    });
+    return unsubscribe;
   }, []);
 
-  const signIn = () => {
-    setIsLoggedIn(true);
-    if (Platform.OS !== 'web') {
-      SecureStore.setItemAsync(SESSION_KEY, 'true');
-    }
+  const signUp = async (email: string, password: string, details: SignUpDetails) => {
+    const credential = await createUserWithEmailAndPassword(auth, email, password);
+
+    // Basic profile doc so there's a real Firestore user record to build on.
+    // The full Profile/Points fields get migrated here when we do that part
+    // of the backend — for now this just mirrors what mockUser.ts had.
+    await setDoc(doc(db, 'users', credential.user.uid), {
+      name: details.fullName,
+      phone: details.phone,
+      email,
+      isVip: false,
+      points: 0,
+      profileCompleted: false,
+      createdAt: serverTimestamp(),
+    });
   };
 
-  const signOut = () => {
-    setIsLoggedIn(false);
-    if (Platform.OS !== 'web') {
-      SecureStore.deleteItemAsync(SESSION_KEY);
-    }
+  const signIn = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password);
+  };
+
+  const signOut = async () => {
+    await firebaseSignOut(auth);
   };
 
   return (
-    <AuthContext.Provider value={{ isLoggedIn, isLoading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, isLoggedIn: !!user, isLoading, signUp, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

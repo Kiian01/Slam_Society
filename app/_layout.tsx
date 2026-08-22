@@ -35,7 +35,7 @@ function RootLayoutNav() {
   const { isLoggedIn, isLoading } = useAuth();
 
   if (isLoading) {
-    return null; // render nothing while checking auth status — swap for a splash screen later if you want
+    return null; // Firebase is restoring the session — avoid flashing onboarding before we know
   }
 
   return (

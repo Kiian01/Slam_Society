@@ -1,66 +1,87 @@
-import AuthStepIndicator from "@/components/AuthStepIndicator";
-import { AuthColors, AuthFonts } from "@/constants/authTheme";
-import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
+  View,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
-} from "react-native";
-import { getPasswordError, isValidEmail } from "../../utils/validation";
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
+import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { AuthColors, AuthFonts } from '@/constants/authTheme';
+import AuthStepIndicator from '@/components/AuthStepIndicator';
+import { isValidEmail, getPasswordError } from '@/utils/validation';
+import { useAuth } from '@/context/AuthContext';
+
+// Maps Firebase's error codes to messages people actually understand.
+function getFriendlyAuthError(code: string): string {
+  switch (code) {
+    case 'auth/email-already-in-use':
+      return 'An account with this email already exists — try logging in instead.';
+    case 'auth/invalid-email':
+      return 'That email address looks invalid.';
+    case 'auth/weak-password':
+      return 'Please choose a stronger password.';
+    default:
+      return 'Something went wrong creating your account. Please try again.';
+  }
+}
 
 export default function Register() {
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const { signUp } = useAuth();
 
   const validate = () => {
     const next: Record<string, string> = {};
-    if (!fullName.trim()) next.fullName = "Full name is required";
+    if (!fullName.trim()) next.fullName = 'Full name is required';
 
-    if (!email.trim()) next.email = "Email is required";
-    else if (!isValidEmail(email)) next.email = "Enter a valid email address";
+    if (!email.trim()) next.email = 'Email is required';
+    else if (!isValidEmail(email)) next.email = 'Enter a valid email address';
 
-    if (!phone.trim()) next.phone = "Phone number is required";
-    else if (phone.replace(/\D/g, "").length < 7)
-      next.phone = "Enter a valid phone number";
+    if (!phone.trim()) next.phone = 'Phone number is required';
+    else if (phone.replace(/\D/g, '').length < 7) next.phone = 'Enter a valid phone number';
 
     const passwordError = getPasswordError(password);
     if (passwordError) next.password = passwordError;
 
-    if (confirmPassword !== password)
-      next.confirmPassword = "Passwords do not match";
+    if (confirmPassword !== password) next.confirmPassword = 'Passwords do not match';
 
     setErrors(next);
     return Object.keys(next).length === 0;
   };
 
-  const handleContinue = () => {
-    if (validate()) {
-      // Account "created" locally for now — verification step is next
-      router.push("/verify");
+  const handleContinue = async () => {
+    if (!validate()) return;
+
+    setLoading(true);
+    try {
+      // Firebase logs the user in immediately on account creation — so this
+      // is the actual moment sign-up completes. Stack.Protected picks up the
+      // new login state and redirects into the app automatically.
+      await signUp(email.trim(), password, { fullName: fullName.trim(), phone: phone.trim() });
+    } catch (err: any) {
+      setErrors({ email: getFriendlyAuthError(err?.code ?? '') });
+      setLoading(false);
     }
   };
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <AuthStepIndicator currentStep={1} totalSteps={4} />
         <Text style={styles.title}>Create Account</Text>
 
@@ -90,15 +111,8 @@ export default function Register() {
         />
 
         <View style={styles.field}>
-          <Text style={[styles.label, errors.password && styles.labelError]}>
-            Password *
-          </Text>
-          <View
-            style={[
-              styles.passwordRow,
-              errors.password ? styles.inputErrorBorder : null,
-            ]}
-          >
+          <Text style={[styles.label, errors.password && styles.labelError]}>Password *</Text>
+          <View style={[styles.passwordRow, errors.password ? styles.inputErrorBorder : null]}>
             <TextInput
               style={styles.passwordInput}
               value={password}
@@ -109,7 +123,7 @@ export default function Register() {
             />
             <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
               <Ionicons
-                name={showPassword ? "eye-off" : "eye"}
+                name={showPassword ? 'eye-off' : 'eye'}
                 size={20}
                 color={AuthColors.subtleText}
               />
@@ -134,11 +148,16 @@ export default function Register() {
         />
 
         <TouchableOpacity
-          style={styles.primaryButton}
+          style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
           onPress={handleContinue}
           activeOpacity={0.85}
+          disabled={loading}
         >
-          <Text style={styles.primaryButtonText}>Continue</Text>
+          {loading ? (
+            <ActivityIndicator color={AuthColors.white} />
+          ) : (
+            <Text style={styles.primaryButtonText}>Continue</Text>
+          )}
         </TouchableOpacity>
 
         <View style={styles.dividerRow}>
@@ -157,10 +176,9 @@ export default function Register() {
           <Text style={styles.socialButtonText}>Sign Up with Facebook</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => router.push("/login")}>
+        <TouchableOpacity onPress={() => router.push('/login')}>
           <Text style={styles.footerText}>
-            Already have an account?{" "}
-            <Text style={styles.footerLink}>Log In here</Text>
+            Already have an account? <Text style={styles.footerLink}>Log In here</Text>
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -175,8 +193,8 @@ type FieldProps = {
   error?: string;
   placeholder?: string;
   secureTextEntry?: boolean;
-  keyboardType?: "default" | "email-address" | "phone-pad";
-  autoCapitalize?: "none" | "sentences";
+  keyboardType?: 'default' | 'email-address' | 'phone-pad';
+  autoCapitalize?: 'none' | 'sentences';
 };
 
 function Field({
@@ -212,7 +230,7 @@ const styles = StyleSheet.create({
   scroll: { padding: 24, paddingTop: 60 },
   title: {
     fontSize: 20,
-    fontWeight: "700",
+    fontWeight: '700',
     fontFamily: AuthFonts.heading,
     color: AuthColors.text,
     marginBottom: 24,
@@ -222,7 +240,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: AuthColors.primary,
     marginBottom: 6,
-    fontWeight: "600",
+    fontWeight: '600',
     fontFamily: AuthFonts.medium,
   },
   labelError: { color: AuthColors.error },
@@ -236,9 +254,9 @@ const styles = StyleSheet.create({
   },
   inputErrorBorder: { borderBottomColor: AuthColors.error },
   passwordRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderBottomWidth: 1,
     borderBottomColor: AuthColors.border,
   },
@@ -265,16 +283,17 @@ const styles = StyleSheet.create({
     backgroundColor: AuthColors.primary,
     borderRadius: 28,
     paddingVertical: 16,
-    alignItems: "center",
+    alignItems: 'center',
     marginVertical: 20,
   },
+  primaryButtonDisabled: { opacity: 0.7 },
   primaryButtonText: {
     color: AuthColors.white,
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: '700',
     fontFamily: AuthFonts.bold,
   },
-  dividerRow: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   divider: { flex: 1, height: 1, backgroundColor: AuthColors.border },
   dividerText: {
     marginHorizontal: 10,
@@ -283,9 +302,9 @@ const styles = StyleSheet.create({
     fontFamily: AuthFonts.regular,
   },
   socialButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
     borderWidth: 1,
     borderColor: AuthColors.border,
@@ -296,19 +315,15 @@ const styles = StyleSheet.create({
   socialButtonText: {
     fontSize: 14,
     color: AuthColors.text,
-    fontWeight: "500",
+    fontWeight: '500',
     fontFamily: AuthFonts.medium,
   },
   footerText: {
-    textAlign: "center",
+    textAlign: 'center',
     color: AuthColors.subtleText,
     fontSize: 13,
     marginTop: 12,
     fontFamily: AuthFonts.regular,
   },
-  footerLink: {
-    color: AuthColors.primary,
-    fontWeight: "700",
-    fontFamily: AuthFonts.bold,
-  },
+  footerLink: { color: AuthColors.primary, fontWeight: '700', fontFamily: AuthFonts.bold },
 });
